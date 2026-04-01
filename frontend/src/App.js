@@ -13,6 +13,14 @@ const COMPOUND_COLORS = {
   WET: "#0067ff",
 };
 
+// ─── Format lap time (seconds → MM:SS.mmm) ──────────────────────────────────
+function formatLapTime(seconds) {
+  if (!seconds) return "—";
+  const mins = Math.floor(seconds / 60);
+  const secs = (seconds % 60).toFixed(3).padStart(6, "0");
+  return `${mins}:${secs}`;
+}
+
 // ─── Each driver gets a chart line color ─────────────────────────────────────
 const DRIVER_COLORS = [
   "#e10600", "#00d2be", "#ff8700", "#dc0000",
@@ -57,7 +65,7 @@ function CustomTooltip({ active, payload, label }) {
       <div style={{ color: "#aaa", marginBottom: 6 }}>Lap {label}</div>
       {payload.map((p) => (
         <div key={p.name} style={{ color: p.color, marginBottom: 2 }}>
-          {p.name}: <strong>{p.value?.toFixed(3)}s</strong>
+          {p.name}: <strong>{formatLapTime(p.value)}</strong>
         </div>
       ))}
     </div>
@@ -362,12 +370,12 @@ export default function App() {
           {fastestLap && (
             <StatCard
               label={`Fastest Lap · ${tableDriver}`}
-              value={`${fastestLap.toFixed(3)}s`}
+              value={formatLapTime(fastestLap)}
               sub="Viewing selected driver below"
             />
           )}
           {avgLap && (
-            <StatCard label={`Avg Lap · ${tableDriver}`} value={`${avgLap}s`} />
+            <StatCard label={`Avg Lap · ${tableDriver}`} value={formatLapTime(parseFloat(avgLap))} />
           )}
         </div>
 
@@ -408,7 +416,8 @@ export default function App() {
                 stroke="#555"
                 tick={{ fill: "#888", fontSize: 12 }}
                 domain={["auto", "auto"]}
-                label={{ value: "Lap Time (s)", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }}
+                tickFormatter={formatLapTime}
+                label={{ value: "Lap Time", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }}
               />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
@@ -516,7 +525,7 @@ export default function App() {
                         fontWeight: isFastest ? 700 : 400,
                         fontFamily: "monospace",
                       }}>
-                        {lap.LapTimeSeconds?.toFixed(3)}s
+                        {formatLapTime(lap.LapTimeSeconds)}
                         {isFastest && (
                           <span style={{ marginLeft: 8, fontSize: 10, color: "#e10600" }}>
                             ▼ FASTEST
