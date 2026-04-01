@@ -8,7 +8,6 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -19,12 +18,11 @@ cached_data = None
 
 @app.get("/")
 def home():
-    return {"message": "Backend working ✅"}
+    return {"message": "F1 AI Platform running"}
 
 @app.get("/race-laps")
 def get_race_laps():
     global cached_data
-
     if cached_data is not None:
         return cached_data
 
