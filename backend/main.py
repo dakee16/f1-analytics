@@ -88,3 +88,42 @@ def get_stint_data():
     )
 
     return stints.to_dict(orient='records')
+
+@app.get("/position-data")
+def get_position_data():
+    session = load_session()
+
+    laps = session.laps[['Driver', 'LapNumber', 'Position']].copy()
+    laps = laps.dropna(subset=['Position'])
+    laps['Position'] = laps['Position'].astype(int)
+
+    return laps.to_dict(orient='records')
+
+@app.get("/race-overview")
+def get_race_overview():
+    session = load_session()
+
+    # Fastest lap of the entire race
+    laps = session.laps[['Driver', 'LapNumber', 'LapTime']].copy()
+    laps = laps.dropna(subset=['LapTime'])
+    laps['LapTimeSeconds'] = laps['LapTime'].dt.total_seconds()
+    laps = laps[laps['LapTimeSeconds'] < 200]
+    fastest_row = laps.loc[laps['LapTimeSeconds'].idxmin()]
+
+    # Podium — top 3 by ClassifiedPosition
+    results = session.results[['Abbreviation', 'ClassifiedPosition']].copy()
+    results = results[results['ClassifiedPosition'].apply(
+        lambda x: str(x).isdigit()
+    )]
+    results['ClassifiedPosition'] = results['ClassifiedPosition'].astype(int)
+    results = results.sort_values('ClassifiedPosition')
+    podium = results.head(3)[['Abbreviation', 'ClassifiedPosition']].to_dict(orient='records')
+
+    return {
+        "fastestLap": {
+            "driver": fastest_row['Driver'],
+            "lapNumber": int(fastest_row['LapNumber']),
+            "timeSeconds": fastest_row['LapTimeSeconds'],
+        },
+        "podium": podium,
+    }
