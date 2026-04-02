@@ -117,6 +117,9 @@ def prewarm_all_races():
                         "podium": podium,
                     }
 
+                    if key in session_cache:
+                        del session_cache[key]
+
                     print(f"  ✅ {year} {gp} cached")
 
                 except Exception as e:
