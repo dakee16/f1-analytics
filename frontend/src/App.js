@@ -5,7 +5,8 @@ import {
   BarChart, Bar, Cell,
 } from "recharts";
 
-const API = "http://127.0.0.1:8001";
+const API = "https://f1-ai-platform-production.up.railway.app";
+
 
 const COMPOUND_COLORS = {
   SOFT: "#e10600", MEDIUM: "#ffd700", HARD: "#eeeeee",
