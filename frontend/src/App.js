@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
+  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
 const API = "http://127.0.0.1:8001";
@@ -20,7 +20,7 @@ const DRIVER_COLORS = [
 ];
 
 function formatLapTime(seconds) {
-  if (!seconds) return "—";
+  if (!seconds && seconds !== 0) return "—";
   const mins = Math.floor(seconds / 60);
   const secs = (seconds % 60).toFixed(3).padStart(6, "0");
   return `${mins}:${secs}`;
@@ -60,7 +60,6 @@ function Podium({ podium }) {
   const p2 = podium.find((p) => p.ClassifiedPosition === 2);
   const p3 = podium.find((p) => p.ClassifiedPosition === 3);
   const MEDAL = { 1: "#ffd700", 2: "#c0c0c0", 3: "#cd7f32" };
-
   function Stand({ driver, pos, height }) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
@@ -72,7 +71,6 @@ function Podium({ podium }) {
       </div>
     );
   }
-
   return (
     <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "20px 28px 0", display: "flex", flexDirection: "column", alignItems: "center", minWidth: 260 }}>
       <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>Podium</div>
@@ -143,6 +141,208 @@ function StintChart({ stints, allDrivers, driverStatus }) {
   );
 }
 
+// ─── Lap Time Predictor Widget ────────────────────────────────────────────────
+function LapTimePredictor({ laps, modelInfo }) {
+  const [compound, setCompound] = useState("MEDIUM");
+  const [tyreLife, setTyreLife] = useState(15);
+  const [lapNumber, setLapNumber] = useState(30);
+  const [prediction, setPrediction] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // Compute race baseline (5th percentile of loaded lap times)
+  const baseline = React.useMemo(() => {
+    const times = laps.map((l) => l.LapTimeSeconds).filter(Boolean).sort((a, b) => a - b);
+    if (!times.length) return 0;
+    const idx = Math.floor(times.length * 0.05);
+    return times[idx];
+  }, [laps]);
+
+  const totalLaps = React.useMemo(() => {
+    const lapNums = laps.map((l) => l.LapNumber).filter(Boolean);
+    return lapNums.length ? Math.max(...lapNums) : 78;
+  }, [laps]);
+
+  async function predict() {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        compound,
+        tyre_life: tyreLife,
+        lap_number: lapNumber,
+        total_laps: totalLaps,
+        baseline_seconds: baseline,
+      });
+      const res = await fetch(`${API}/predict-laptime?${params}`);
+      const data = await res.json();
+      setPrediction(data);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }
+
+  // Build degradation curve — predicted times for tyre ages 1–40 with current compound
+  const degradationData = React.useMemo(() => {
+    if (!baseline) return [];
+    return Array.from({ length: 40 }, (_, i) => ({ tyreAge: i + 1, age: i + 1 }));
+  }, [baseline]);
+
+  const SLIDER_STYLE = {
+    width: "100%", accentColor: "#e10600", cursor: "pointer",
+  };
+
+  const INPUT_LABEL = {
+    color: "#888", fontSize: 11, textTransform: "uppercase",
+    letterSpacing: 1, marginBottom: 8, display: "block",
+  };
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+
+      {/* ── Left: Controls ── */}
+      <div style={{ background: "#141414", border: "1px solid #222", borderRadius: 10, padding: 24 }}>
+
+        {/* Model info banner */}
+        <div style={{ background: "#0f0f0f", border: "1px solid #333", borderRadius: 6, padding: "10px 14px", marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ color: "#666", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>XGBoost Model</div>
+            <div style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>
+              Trained on {modelInfo?.trainedOnLaps?.toLocaleString() ?? "—"} laps
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ color: "#666", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Accuracy</div>
+            <div style={{ color: "#00d2be", fontSize: 14, fontWeight: 700, marginTop: 2 }}>
+              ±{modelInfo?.maeSeconds?.toFixed(2) ?? "—"}s MAE
+            </div>
+          </div>
+        </div>
+
+        {/* Compound selector */}
+        <div style={{ marginBottom: 20 }}>
+          <span style={INPUT_LABEL}>Tyre Compound</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            {["SOFT", "MEDIUM", "HARD"].map((c) => (
+              <button key={c} onClick={() => setCompound(c)} style={{
+                padding: "7px 16px", borderRadius: 6, cursor: "pointer",
+                fontWeight: 700, fontSize: 12, letterSpacing: 0.5,
+                border: `2px solid ${compound === c ? COMPOUND_COLORS[c] : "#333"}`,
+                background: compound === c ? COMPOUND_COLORS[c] + "22" : "transparent",
+                color: compound === c ? COMPOUND_COLORS[c] : "#555",
+                transition: "all 0.15s",
+              }}>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tyre life slider */}
+        <div style={{ marginBottom: 20 }}>
+          <span style={INPUT_LABEL}>
+            Tyre Age — <span style={{ color: "#fff" }}>{tyreLife} laps</span>
+          </span>
+          <input type="range" min={1} max={50} value={tyreLife}
+            onChange={(e) => setTyreLife(Number(e.target.value))}
+            style={SLIDER_STYLE} />
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#555", marginTop: 4 }}>
+            <span>Fresh (1)</span><span>Old (50)</span>
+          </div>
+        </div>
+
+        {/* Lap number slider */}
+        <div style={{ marginBottom: 24 }}>
+          <span style={INPUT_LABEL}>
+            Race Lap — <span style={{ color: "#fff" }}>Lap {lapNumber}</span>
+            <span style={{ color: "#555", marginLeft: 8 }}>of {totalLaps}</span>
+          </span>
+          <input type="range" min={1} max={totalLaps} value={lapNumber}
+            onChange={(e) => setLapNumber(Number(e.target.value))}
+            style={SLIDER_STYLE} />
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#555", marginTop: 4 }}>
+            <span>Lap 1</span><span>Lap {totalLaps}</span>
+          </div>
+        </div>
+
+        {/* Predict button */}
+        <button onClick={predict} disabled={loading || !baseline} style={{
+          width: "100%", padding: "12px", background: loading ? "#333" : "#e10600",
+          border: "none", borderRadius: 8, color: "#fff", fontSize: 14,
+          fontWeight: 700, cursor: loading ? "not-allowed" : "pointer",
+          letterSpacing: 0.5, transition: "background 0.2s",
+        }}>
+          {loading ? "Predicting..." : "⚡ Predict Lap Time"}
+        </button>
+
+        {!baseline && (
+          <div style={{ color: "#555", fontSize: 12, marginTop: 8, textAlign: "center" }}>
+            Load a race first to enable predictions
+          </div>
+        )}
+      </div>
+
+      {/* ── Right: Result ── */}
+      <div style={{ background: "#141414", border: "1px solid #222", borderRadius: 10, padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+
+        {prediction ? (
+          <>
+            {/* Main prediction */}
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <div style={{ color: "#666", fontSize: 11, textTransform: "uppercase", letterSpacing: 2, marginBottom: 8 }}>
+                Predicted Lap Time
+              </div>
+              <div style={{ color: "#e10600", fontSize: 48, fontWeight: 700, fontFamily: "monospace", letterSpacing: -1 }}>
+                {formatLapTime(prediction.predictedSeconds)}
+              </div>
+              <div style={{ color: "#555", fontSize: 13, marginTop: 8 }}>
+                +{prediction.predictedDelta?.toFixed(3)}s above race baseline
+              </div>
+            </div>
+
+            {/* Breakdown */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              {[
+                { label: "Compound", value: prediction.compound },
+                { label: "Tyre Age", value: `${prediction.tyreLife} laps` },
+                { label: "Race Lap", value: `Lap ${prediction.lapNumber}` },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ background: "#0f0f0f", borderRadius: 6, padding: "10px 12px", textAlign: "center" }}>
+                  <div style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>{label}</div>
+                  <div style={{ color: "#ccc", fontSize: 13, fontWeight: 600, marginTop: 4 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Accuracy note */}
+            <div style={{ background: "#00d2be11", border: "1px solid #00d2be33", borderRadius: 6, padding: "10px 14px", fontSize: 12, color: "#00d2be" }}>
+              Model accuracy: ±{prediction.modelMAE?.toFixed(2)}s — prediction is within this margin ~68% of the time
+            </div>
+
+            {/* Degradation insight */}
+            <div style={{ background: "#0f0f0f", borderRadius: 6, padding: "12px 14px" }}>
+              <div style={{ color: "#666", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+                Tyre Degradation Insight
+              </div>
+              <div style={{ color: "#aaa", fontSize: 13, lineHeight: 1.6 }}>
+                {prediction.compound === "SOFT" && "Soft tyres degrade fastest — expect significant time loss after lap 15."}
+                {prediction.compound === "MEDIUM" && "Medium tyres offer the best balance — degradation is gradual and manageable."}
+                {prediction.compound === "HARD" && "Hard tyres are the most durable — minimal degradation but slower initial pace."}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#333", textAlign: "center" }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🔮</div>
+            <div style={{ fontSize: 14, marginBottom: 6 }}>Configure inputs and click predict</div>
+            <div style={{ fontSize: 12 }}>Uses XGBoost trained on 11,000+ F1 laps</div>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [availableRaces, setAvailableRaces] = useState({});
@@ -155,6 +355,7 @@ export default function App() {
   const [stints, setStints] = useState([]);
   const [positions, setPositions] = useState([]);
   const [raceOverview, setRaceOverview] = useState(null);
+  const [modelInfo, setModelInfo] = useState(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -162,25 +363,26 @@ export default function App() {
   const [tableDriver, setTableDriver] = useState(null);
   const [allDrivers, setAllDrivers] = useState([]);
 
-  // Load available races once on mount
   useEffect(() => {
     fetch(`${API}/available-races`)
       .then((r) => r.json())
       .then((data) => {
         setAvailableRaces(data);
         setRacesLoading(false);
-        const years = Object.keys(data).sort().reverse();
-        const latestYear = years[0];
-        if (latestYear) {
-          const gps = data[latestYear];
-          setSelectedYear(latestYear);
-          setSelectedGp(gps[gps.length - 1]); // last race of most recent year
+        if (data["2024"]?.includes("Monaco Grand Prix")) {
+          setSelectedYear("2024");
+          setSelectedGp("Monaco Grand Prix");
+        } else {
+          const firstYear = Object.keys(data).sort()[0];
+          if (firstYear) { setSelectedYear(firstYear); setSelectedGp(data[firstYear][0]); }
         }
       })
       .catch((err) => { setError(err.message); setRacesLoading(false); });
+
+    // Load model info once
+    fetch(`${API}/model-info`).then((r) => r.json()).then(setModelInfo).catch(() => { });
   }, []);
 
-  // Fetch race data whenever selection changes
   const fetchRaceData = useCallback(() => {
     if (!selectedYear || !selectedGp) return;
     setDataLoading(true);
@@ -209,9 +411,7 @@ export default function App() {
       .catch((err) => { setError(err.message); setDataLoading(false); });
   }, [selectedYear, selectedGp]);
 
-  useEffect(() => {
-    if (!racesLoading) fetchRaceData();
-  }, [selectedYear, selectedGp, racesLoading]);
+  useEffect(() => { if (!racesLoading) fetchRaceData(); }, [selectedYear, selectedGp, racesLoading]);
 
   function toggleDriver(driver) {
     setSelectedDrivers((prev) =>
@@ -287,7 +487,7 @@ export default function App() {
   return (
     <div style={styles.app}>
 
-      {/* ── Header with race selector ── */}
+      {/* Header */}
       <div style={styles.header}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={styles.redBar} />
@@ -296,34 +496,20 @@ export default function App() {
             <div style={{ color: "#666", fontSize: 13, marginTop: 2 }}>{selectedGp} · {selectedYear}</div>
           </div>
         </div>
-
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <div style={{ color: "#555", fontSize: 11, letterSpacing: 1 }}>SELECT RACE</div>
-
           <select value={selectedYear}
-            onChange={(e) => {
-              const yr = e.target.value;
-              setSelectedYear(yr);
-              const first = availableRaces[yr]?.[0];
-              if (first) setSelectedGp(first);
-            }}
+            onChange={(e) => { const yr = e.target.value; setSelectedYear(yr); const first = availableRaces[yr]?.[0]; if (first) setSelectedGp(first); }}
             style={SELECT_STYLE}>
-            {Object.keys(availableRaces).sort().map((yr) => (
-              <option key={yr} value={yr}>{yr}</option>
-            ))}
+            {Object.keys(availableRaces).sort().map((yr) => <option key={yr} value={yr}>{yr}</option>)}
           </select>
-
-          <select value={selectedGp} onChange={(e) => setSelectedGp(e.target.value)}
-            style={{ ...SELECT_STYLE, minWidth: 240 }}>
-            {gpList.map((gp) => (
-              <option key={gp} value={gp}>{gp}</option>
-            ))}
+          <select value={selectedGp} onChange={(e) => setSelectedGp(e.target.value)} style={{ ...SELECT_STYLE, minWidth: 240 }}>
+            {gpList.map((gp) => <option key={gp} value={gp}>{gp}</option>)}
           </select>
-
           {dataLoading && (
             <div style={{ color: "#e10600", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#e10600", display: "inline-block" }} />
-              Loading...
+              Loading race data — first load may take 60s
             </div>
           )}
         </div>
@@ -331,82 +517,73 @@ export default function App() {
 
       {error && (
         <div style={{ maxWidth: 1200, margin: "24px auto", padding: "0 32px" }}>
-          <div style={{ background: "#ff000022", border: "1px solid #ff4444", borderRadius: 8, padding: "12px 16px", color: "#ff6666", fontSize: 13 }}>
-            Error: {error}
-          </div>
+          <div style={{ background: "#ff000022", border: "1px solid #ff4444", borderRadius: 8, padding: "12px 16px", color: "#ff6666", fontSize: 13 }}>Error: {error}</div>
         </div>
       )}
 
-      <div style={styles.section}>
-        {dataLoading && (
-          <div style={{ color: "#e10600", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#e10600", display: "inline-block" }} />
-            Loading race data — first load may take 60s
+      <div style={{ opacity: dataLoading ? 0.4 : 1, transition: "opacity 0.3s", pointerEvents: dataLoading ? "none" : "auto" }}>
+        <div style={styles.section}>
+
+          {/* Race overview */}
+          <div style={styles.sectionTitle}>Race Overview</div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 40, alignItems: "flex-end" }}>
+            <FastestLapCard fastestLap={raceOverview?.fastestLap} />
+            <Podium podium={raceOverview?.podium} />
           </div>
-        )}
 
-        {/* Race overview */}
-        <div style={styles.sectionTitle}>Race Overview</div>
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 40, alignItems: "flex-end" }}>
-          <FastestLapCard fastestLap={raceOverview?.fastestLap} />
-          <Podium podium={raceOverview?.podium} />
-        </div>
+          {/* Driver selector */}
+          <div style={styles.sectionTitle}>Lap Time Comparison</div>
+          <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>
+            Select drivers to compare — same selection applies to all charts below
+          </p>
+          <div style={styles.driverGrid}>
+            {allDrivers.map((driver, i) => {
+              const color = DRIVER_COLORS[i % DRIVER_COLORS.length];
+              const active = selectedDrivers.includes(driver);
+              const dnf = driverStatus[driver] && !driverStatus[driver].finished;
+              return (
+                <button key={driver} style={styles.driverBtn(active, color)} onClick={() => toggleDriver(driver)}>
+                  {driver}{dnf && <DnfBadge />}
+                </button>
+              );
+            })}
+          </div>
 
-        {/* Driver selector */}
-        <div style={styles.sectionTitle}>Lap Time Comparison</div>
-        <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>
-          Select drivers to compare — same selection applies to all charts below
-        </p>
-        <div style={styles.driverGrid}>
-          {allDrivers.map((driver, i) => {
-            const color = DRIVER_COLORS[i % DRIVER_COLORS.length];
-            const active = selectedDrivers.includes(driver);
-            const dnf = driverStatus[driver] && !driverStatus[driver].finished;
-            return (
-              <button key={driver} style={styles.driverBtn(active, color)} onClick={() => toggleDriver(driver)}>
-                {driver}{dnf && <DnfBadge />}
-              </button>
-            );
-          })}
-        </div>
+          {/* Lap time chart */}
+          <div style={styles.chartBox}>
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                <XAxis dataKey="LapNumber" stroke="#555" tick={{ fill: "#888", fontSize: 12 }}
+                  label={{ value: "Lap Number", position: "insideBottom", offset: -10, fill: "#666", fontSize: 12 }} />
+                <YAxis stroke="#555" tick={{ fill: "#888", fontSize: 12 }} domain={["auto", "auto"]}
+                  tickFormatter={formatLapTime}
+                  label={{ value: "Lap Time", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
+                {selectedDrivers.map((driver) => (
+                  <Line key={driver} type="monotone" dataKey={driver}
+                    stroke={DRIVER_COLORS[allDrivers.indexOf(driver) % DRIVER_COLORS.length]}
+                    dot={false} strokeWidth={2} connectNulls={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
 
-        {/* Lap time chart */}
-        <div style={styles.chartBox}>
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-              <XAxis dataKey="LapNumber" stroke="#555" tick={{ fill: "#888", fontSize: 12 }}
-                label={{ value: "Lap Number", position: "insideBottom", offset: -10, fill: "#666", fontSize: 12 }} />
-              <YAxis stroke="#555" tick={{ fill: "#888", fontSize: 12 }} domain={["auto", "auto"]}
-                tickFormatter={formatLapTime}
-                label={{ value: "Lap Time", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }} />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
-              {selectedDrivers.map((driver) => (
-                <Line key={driver} type="monotone" dataKey={driver}
-                  stroke={DRIVER_COLORS[allDrivers.indexOf(driver) % DRIVER_COLORS.length]}
-                  dot={false} strokeWidth={2} connectNulls={false} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Race position chart */}
-        <div style={styles.sectionTitle}>Race Position</div>
-        <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>
-          Position each lap — dips show pit stops, climbs show overtakes
-        </p>
-        <div style={styles.chartBox}>
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={positionChartData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-              <XAxis dataKey="LapNumber" stroke="#555" tick={{ fill: "#888", fontSize: 12 }}
-                label={{ value: "Lap Number", position: "insideBottom", offset: -10, fill: "#666", fontSize: 12 }} />
-              <YAxis stroke="#555" tick={{ fill: "#888", fontSize: 12 }}
-                reversed={true} domain={[1, 20]} ticks={[1, 5, 10, 15, 20]}
-                label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }} />
-              <Tooltip
-                content={({ active, payload, label }) => {
+          {/* Race position chart */}
+          <div style={styles.sectionTitle}>Race Position</div>
+          <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>
+            Position each lap — dips show pit stops, climbs show overtakes
+          </p>
+          <div style={styles.chartBox}>
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={positionChartData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                <XAxis dataKey="LapNumber" stroke="#555" tick={{ fill: "#888", fontSize: 12 }}
+                  label={{ value: "Lap Number", position: "insideBottom", offset: -10, fill: "#666", fontSize: 12 }} />
+                <YAxis stroke="#555" tick={{ fill: "#888", fontSize: 12 }} reversed={true} domain={[1, 20]} ticks={[1, 5, 10, 15, 20]}
+                  label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }} />
+                <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return (
                     <div style={{ background: "#1a1a1a", border: "1px solid #444", borderRadius: 6, padding: "10px 14px", fontSize: 13 }}>
@@ -416,104 +593,113 @@ export default function App() {
                       ))}
                     </div>
                   );
-                }}
-              />
-              <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
-              {selectedDrivers.map((driver) => (
-                <Line key={driver} type="monotone" dataKey={driver}
-                  stroke={DRIVER_COLORS[allDrivers.indexOf(driver) % DRIVER_COLORS.length]}
-                  dot={false} strokeWidth={2} connectNulls={false} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+                }} />
+                <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
+                {selectedDrivers.map((driver) => (
+                  <Line key={driver} type="monotone" dataKey={driver}
+                    stroke={DRIVER_COLORS[allDrivers.indexOf(driver) % DRIVER_COLORS.length]}
+                    dot={false} strokeWidth={2} connectNulls={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
 
-        {/* Tire strategy */}
-        <div style={styles.sectionTitle}>Tire Strategy</div>
-        <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>
-          Each bar shows a tire stint — hover for compound and lap range
-        </p>
-        <div style={styles.chartBox}>
-          <StintChart stints={stints} allDrivers={allDrivers} driverStatus={driverStatus} />
-        </div>
+          {/* Tire strategy */}
+          <div style={styles.sectionTitle}>Tire Strategy</div>
+          <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>
+            Each bar shows a tire stint — hover for compound and lap range
+          </p>
+          <div style={styles.chartBox}>
+            <StintChart stints={stints} allDrivers={allDrivers} driverStatus={driverStatus} />
+          </div>
 
-        {/* Driver lap detail */}
-        <div style={styles.sectionTitle}>Driver Lap Detail</div>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-          {fastestLap && (
-            <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "14px 20px", minWidth: 140 }}>
-              <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Fastest Lap · {tableDriver}</div>
-              <div style={{ color: "#fff", fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{formatLapTime(fastestLap)}</div>
-            </div>
-          )}
-          {avgLap && (
-            <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "14px 20px", minWidth: 140 }}>
-              <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Avg Lap · {tableDriver}</div>
-              <div style={{ color: "#fff", fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{formatLapTime(avgLap)}</div>
-            </div>
-          )}
-          {driverStatus[tableDriver] && !driverStatus[tableDriver].finished && (
-            <div style={{ background: "#ff000022", border: "1px solid #ff4444", borderRadius: 8, padding: "14px 20px", color: "#ff6666", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center" }}>
-              DNF — {driverStatus[tableDriver].status}
-            </div>
-          )}
-        </div>
+          {/* ── AI Lap Time Predictor ── */}
+          <div style={styles.sectionTitle}>AI Lap Time Predictor</div>
+          <p style={{ color: "#666", fontSize: 13, marginBottom: 20, marginTop: -8 }}>
+            XGBoost model trained on 11,000+ laps — predict lap time for any compound, tyre age, and lap number
+          </p>
+          <div style={{ marginBottom: 40 }}>
+            <LapTimePredictor laps={laps} modelInfo={modelInfo} />
+          </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-          {allDrivers.map((driver, i) => {
-            const color = DRIVER_COLORS[i % DRIVER_COLORS.length];
-            const dnf = driverStatus[driver] && !driverStatus[driver].finished;
-            return (
-              <button key={driver} style={styles.driverBtn(tableDriver === driver, color)} onClick={() => setTableDriver(driver)}>
-                {driver}{dnf && <DnfBadge />}
-              </button>
-            );
-          })}
-        </div>
+          {/* Driver lap detail */}
+          <div style={styles.sectionTitle}>Driver Lap Detail</div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+            {fastestLap && (
+              <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "14px 20px", minWidth: 140 }}>
+                <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Fastest Lap · {tableDriver}</div>
+                <div style={{ color: "#fff", fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{formatLapTime(fastestLap)}</div>
+              </div>
+            )}
+            {avgLap && (
+              <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "14px 20px", minWidth: 140 }}>
+                <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Avg Lap · {tableDriver}</div>
+                <div style={{ color: "#fff", fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{formatLapTime(avgLap)}</div>
+              </div>
+            )}
+            {driverStatus[tableDriver] && !driverStatus[tableDriver].finished && (
+              <div style={{ background: "#ff000022", border: "1px solid #ff4444", borderRadius: 8, padding: "14px 20px", color: "#ff6666", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center" }}>
+                DNF — {driverStatus[tableDriver].status}
+              </div>
+            )}
+          </div>
 
-        <div style={{ background: "#141414", border: "1px solid #222", borderRadius: 10, overflow: "hidden" }}>
-          {tableLaps.length === 0 ? (
-            <div style={{ padding: "32px", textAlign: "center", color: "#555" }}>
-              No lap data for {tableDriver}
-              {driverStatus[tableDriver] && !driverStatus[tableDriver].finished && (
-                <span style={{ color: "#ff6666", marginLeft: 8 }}>({driverStatus[tableDriver].status})</span>
-              )}
-            </div>
-          ) : (
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Lap</th>
-                  <th style={styles.th}>Lap Time</th>
-                  <th style={styles.th}>Compound</th>
-                  <th style={styles.th}>Tyre Life</th>
-                  <th style={styles.th}>Δ Fastest</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tableLaps.map((lap, i) => {
-                  const delta = fastestLap ? (lap.LapTimeSeconds - fastestLap).toFixed(3) : null;
-                  const isFastest = lap.LapTimeSeconds === fastestLap;
-                  return (
-                    <tr key={i} style={{ background: isFastest ? "#e1060012" : "transparent" }}>
-                      <td style={styles.td}>{lap.LapNumber}</td>
-                      <td style={{ ...styles.td, color: isFastest ? "#e10600" : "#ccc", fontWeight: isFastest ? 700 : 400, fontFamily: "monospace" }}>
-                        {formatLapTime(lap.LapTimeSeconds)}
-                        {isFastest && <span style={{ marginLeft: 8, fontSize: 10, color: "#e10600" }}>▼ FASTEST</span>}
-                      </td>
-                      <td style={styles.td}><CompoundBadge compound={lap.Compound} /></td>
-                      <td style={{ ...styles.td, color: "#888" }}>{lap.TyreLife} laps</td>
-                      <td style={{ ...styles.td, color: isFastest ? "#e10600" : "#555", fontFamily: "monospace", fontSize: 12 }}>
-                        {isFastest ? "—" : `+${delta}s`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+            {allDrivers.map((driver, i) => {
+              const color = DRIVER_COLORS[i % DRIVER_COLORS.length];
+              const dnf = driverStatus[driver] && !driverStatus[driver].finished;
+              return (
+                <button key={driver} style={styles.driverBtn(tableDriver === driver, color)} onClick={() => setTableDriver(driver)}>
+                  {driver}{dnf && <DnfBadge />}
+                </button>
+              );
+            })}
+          </div>
 
+          <div style={{ background: "#141414", border: "1px solid #222", borderRadius: 10, overflow: "hidden" }}>
+            {tableLaps.length === 0 ? (
+              <div style={{ padding: "32px", textAlign: "center", color: "#555" }}>
+                No lap data for {tableDriver}
+                {driverStatus[tableDriver] && !driverStatus[tableDriver].finished && (
+                  <span style={{ color: "#ff6666", marginLeft: 8 }}>({driverStatus[tableDriver].status})</span>
+                )}
+              </div>
+            ) : (
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Lap</th>
+                    <th style={styles.th}>Lap Time</th>
+                    <th style={styles.th}>Compound</th>
+                    <th style={styles.th}>Tyre Life</th>
+                    <th style={styles.th}>Δ Fastest</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableLaps.map((lap, i) => {
+                    const delta = fastestLap ? (lap.LapTimeSeconds - fastestLap).toFixed(3) : null;
+                    const isFastest = lap.LapTimeSeconds === fastestLap;
+                    return (
+                      <tr key={i} style={{ background: isFastest ? "#e1060012" : "transparent" }}>
+                        <td style={styles.td}>{lap.LapNumber}</td>
+                        <td style={{ ...styles.td, color: isFastest ? "#e10600" : "#ccc", fontWeight: isFastest ? 700 : 400, fontFamily: "monospace" }}>
+                          {formatLapTime(lap.LapTimeSeconds)}
+                          {isFastest && <span style={{ marginLeft: 8, fontSize: 10, color: "#e10600" }}>▼ FASTEST</span>}
+                        </td>
+                        <td style={styles.td}><CompoundBadge compound={lap.Compound} /></td>
+                        <td style={{ ...styles.td, color: "#888" }}>{lap.TyreLife} laps</td>
+                        <td style={{ ...styles.td, color: isFastest ? "#e10600" : "#555", fontFamily: "monospace", fontSize: 12 }}>
+                          {isFastest ? "—" : `+${delta}s`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+        </div>
       </div>
     </div>
   );
