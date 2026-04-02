@@ -1,1 +1,6 @@
 .DS_Store
+data/
+*.sqlite
+venv/
+__pycache__/
+*.pyc
