@@ -6,7 +6,6 @@ import {
 
 const API = "https://f1-ai-platform-production.up.railway.app";
 
-
 const COMPOUND_COLORS = {
   SOFT: "#e10600", MEDIUM: "#ffd700", HARD: "#eeeeee",
   INTERMEDIATE: "#39b54a", WET: "#0067ff",
@@ -33,6 +32,23 @@ function formatRaceTime(seconds) {
   const m = Math.floor((seconds % 3600) / 60);
   const s = (seconds % 60).toFixed(1);
   return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+}
+
+// ─── Section error wrapper ────────────────────────────────────────────────────
+function SectionError({ message }) {
+  return (
+    <div style={{
+      background: "#1a0a0a", border: "1px solid #ff444433", borderRadius: 8,
+      padding: "20px 24px", color: "#ff6666", fontSize: 13, marginBottom: 40,
+      display: "flex", alignItems: "center", gap: 12,
+    }}>
+      <span style={{ fontSize: 18 }}>⚠️</span>
+      <div>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Failed to load this section</div>
+        <div style={{ color: "#ff444488", fontSize: 12 }}>{message}</div>
+      </div>
+    </div>
+  );
 }
 
 function CustomTooltip({ active, payload, label }) {
@@ -267,7 +283,6 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Default to first driver with lap data
   useEffect(() => {
     if (allDrivers.length && !driver) setDriver(allDrivers[0]);
   }, [allDrivers, driver]);
@@ -286,7 +301,6 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
       const res = await fetch(`${API}/simulate-strategy?${params}`);
       const data = await res.json();
       setResult(data);
-      // Set pit lap slider max to total laps
       if (data.totalLaps && pitLap > data.totalLaps - 2) {
         setPitLap(Math.floor(data.totalLaps / 2));
       }
@@ -302,22 +316,17 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
   const fasterByCustom = delta !== null && delta < 0;
   const deltaAbs = delta !== null ? Math.abs(delta) : null;
 
-  // Build comparison chart data
   const comparisonChartData = React.useMemo(() => {
     if (!result?.actualLaps?.length) return [];
-    const actualMap = {};
-    result.actualLaps.forEach((l) => { actualMap[l.lap] = l.predictedSeconds; });
     const customMap = {};
     result.customLaps?.forEach((l) => { customMap[l.lap] = l.predictedSeconds; });
-    const laps = result.actualLaps.map((l) => ({
+    return result.actualLaps.map((l) => ({
       lap: l.lap,
       Actual: l.predictedSeconds,
       Custom: customMap[l.lap] ?? null,
     }));
-    return laps;
   }, [result]);
 
-  // Build stint bar for actual strategy
   function ActualStintBar() {
     if (!result?.actualStints?.length) return null;
     return (
@@ -364,11 +373,7 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
 
   return (
     <div style={{ background: "#141414", border: "1px solid #222", borderRadius: 10, padding: 24 }}>
-
-      {/* Controls row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 20, marginBottom: 28, alignItems: "flex-end" }}>
-
-        {/* Driver picker */}
         <div>
           <span style={INPUT_LABEL}>Driver</span>
           <select value={driver} onChange={(e) => setDriver(e.target.value)}
@@ -378,8 +383,6 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
             ))}
           </select>
         </div>
-
-        {/* Compound 1 */}
         <div>
           <span style={INPUT_LABEL}>Stint 1 Compound</span>
           <div style={{ display: "flex", gap: 6 }}>
@@ -390,8 +393,6 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
             ))}
           </div>
         </div>
-
-        {/* Compound 2 */}
         <div>
           <span style={INPUT_LABEL}>Stint 2 Compound</span>
           <div style={{ display: "flex", gap: 6 }}>
@@ -402,15 +403,11 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
             ))}
           </div>
         </div>
-
-        {/* Pit lap */}
         <div>
           <span style={INPUT_LABEL}>Pit on Lap — <span style={{ color: "#fff" }}>{pitLap}</span></span>
           <input type="range" min={1} max={totalLaps - 1} value={pitLap}
             onChange={(e) => setPitLap(Number(e.target.value))} style={SLIDER_STYLE} />
         </div>
-
-        {/* Run button */}
         <button onClick={simulate} disabled={loading}
           style={{ padding: "10px 20px", background: loading ? "#333" : "#00d2be", border: "none", borderRadius: 8, color: "#000", fontWeight: 700, fontSize: 13, cursor: loading ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
           {loading ? "Running..." : "▶ Simulate"}
@@ -419,7 +416,6 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
 
       {result && !result.error && (
         <>
-          {/* Strategy bars */}
           <div style={{ marginBottom: 24 }}>
             <div style={{ color: "#666", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Strategy Comparison</div>
             <ActualStintBar />
@@ -432,8 +428,6 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
               <span>Lap {totalLaps}</span>
             </div>
           </div>
-
-          {/* Result cards */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
             <div style={{ background: "#0f0f0f", borderRadius: 8, padding: "14px 16px" }}>
               <div style={{ color: "#666", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Actual Strategy</div>
@@ -455,14 +449,11 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
               <div style={{ color: "#555", fontSize: 11, marginTop: 4 }}>vs actual strategy</div>
             </div>
           </div>
-
-          {/* Lap time comparison chart */}
           <div style={{ color: "#666", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Predicted Lap Times — Actual vs Custom</div>
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={comparisonChartData} margin={{ top: 5, right: 20, bottom: 10, left: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" />
-              <XAxis dataKey="lap" stroke="#555" tick={{ fill: "#555", fontSize: 11 }}
-                label={{ value: "Lap", position: "insideBottom", offset: -5, fill: "#555", fontSize: 11 }} />
+              <XAxis dataKey="lap" stroke="#555" tick={{ fill: "#555", fontSize: 11 }} label={{ value: "Lap", position: "insideBottom", offset: -5, fill: "#555", fontSize: 11 }} />
               <YAxis stroke="#555" tick={{ fill: "#555", fontSize: 11 }} domain={["auto", "auto"]} tickFormatter={formatLapTime} />
               <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 8 }} />
@@ -476,11 +467,7 @@ function StrategySimulator({ allDrivers, driverStatus, selectedYear, selectedGp 
           </ResponsiveContainer>
         </>
       )}
-
-      {result?.error && (
-        <div style={{ color: "#ff6666", fontSize: 13, padding: 16 }}>Error: {result.error}</div>
-      )}
-
+      {result?.error && <div style={{ color: "#ff6666", fontSize: 13, padding: 16 }}>Error: {result.error}</div>}
       {!result && !loading && (
         <div style={{ textAlign: "center", color: "#333", padding: "40px 0" }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>🏁</div>
@@ -505,7 +492,9 @@ export default function App() {
   const [raceOverview, setRaceOverview] = useState(null);
   const [modelInfo, setModelInfo] = useState(null);
   const [dataLoading, setDataLoading] = useState(false);
-  const [error, setError] = useState(null);
+
+  // Per-section errors
+  const [sectionErrors, setSectionErrors] = useState({});
 
   const [selectedDrivers, setSelectedDrivers] = useState([]);
   const [tableDriver, setTableDriver] = useState(null);
@@ -515,43 +504,95 @@ export default function App() {
     fetch(`${API}/available-races`).then((r) => r.json()).then((data) => {
       setAvailableRaces(data);
       setRacesLoading(false);
-      if (data["2024"]?.includes("Monaco Grand Prix")) { setSelectedYear("2024"); setSelectedGp("Monaco Grand Prix"); }
-      else { const y = Object.keys(data).sort()[0]; if (y) { setSelectedYear(y); setSelectedGp(data[y][0]); } }
-    }).catch((err) => { setError(err.message); setRacesLoading(false); });
+      if (data["2024"]?.includes("Monaco Grand Prix")) {
+        setSelectedYear("2024"); setSelectedGp("Monaco Grand Prix");
+      } else {
+        const y = Object.keys(data).sort()[0];
+        if (y) { setSelectedYear(y); setSelectedGp(data[y][0]); }
+      }
+    }).catch(() => setRacesLoading(false));
     fetch(`${API}/model-info`).then((r) => r.json()).then(setModelInfo).catch(() => { });
   }, []);
 
   const fetchRaceData = useCallback(async () => {
     if (!selectedYear || !selectedGp) return;
-    setDataLoading(true); setError(null);
-    const params = `year=${selectedYear}&gp=${encodeURIComponent(selectedGp)}`;
-    try {
-      // Sequential — each waits for the previous so session only loads once
-      const lapData = await fetch(`${API}/race-laps?${params}`).then(r => r.json());
-      const statusData = await fetch(`${API}/driver-status?${params}`).then(r => r.json());
-      const stintData = await fetch(`${API}/stint-data?${params}`).then(r => r.json());
-      const positionData = await fetch(`${API}/position-data?${params}`).then(r => r.json());
-      const overviewData = await fetch(`${API}/race-overview?${params}`).then(r => r.json());
+    setDataLoading(true);
+    setSectionErrors({});
 
-      setLaps(lapData); setDriverStatus(statusData); setStints(stintData);
-      setPositions(positionData); setRaceOverview(overviewData);
-      const drivers = Object.keys(statusData).sort();
-      setAllDrivers(drivers);
-      const driversWithLaps = [...new Set(lapData.map((d) => d.Driver))];
-      setSelectedDrivers(driversWithLaps.slice(0, 3));
-      setTableDriver(driversWithLaps[0]);
-      setDataLoading(false);
+    const params = `year=${selectedYear}&gp=${encodeURIComponent(selectedGp)}`;
+
+    try {
+      // Single request replaces 5 separate calls
+      const res = await fetch(`${API}/race-data?${params}`);
+      const data = await res.json();
+
+      const errors = {};
+
+      // Set each section — if data is missing/empty, mark that section as errored
+      if (Array.isArray(data.laps) && data.laps.length > 0) {
+        setLaps(data.laps);
+      } else {
+        setLaps([]);
+        errors.laps = "No lap data available for this race.";
+      }
+
+      if (data.driverStatus && Object.keys(data.driverStatus).length > 0) {
+        setDriverStatus(data.driverStatus);
+        const drivers = Object.keys(data.driverStatus).sort();
+        setAllDrivers(drivers);
+        const driversWithLaps = [...new Set((data.laps || []).map((d) => d.Driver))];
+        setSelectedDrivers(driversWithLaps.slice(0, 3));
+        setTableDriver(driversWithLaps[0] || null);
+      } else {
+        setDriverStatus({});
+        setAllDrivers([]);
+        errors.driverStatus = "Driver status unavailable.";
+      }
+
+      if (Array.isArray(data.stints) && data.stints.length > 0) {
+        setStints(data.stints);
+      } else {
+        setStints([]);
+        errors.stints = "Tyre stint data unavailable.";
+      }
+
+      if (Array.isArray(data.positions) && data.positions.length > 0) {
+        setPositions(data.positions);
+      } else {
+        setPositions([]);
+        errors.positions = "Position data unavailable.";
+      }
+
+      if (data.overview && data.overview.fastestLap) {
+        setRaceOverview(data.overview);
+      } else {
+        setRaceOverview(null);
+        errors.overview = "Race overview unavailable.";
+      }
+
+      setSectionErrors(errors);
+
     } catch (err) {
-      setError(err.message);
-      setDataLoading(false);
+      // Full failure — mark all sections as errored
+      setSectionErrors({
+        laps: "Failed to load race data. The server may still be warming up — try again in a moment.",
+        driverStatus: "Failed to load.",
+        stints: "Failed to load.",
+        positions: "Failed to load.",
+        overview: "Failed to load.",
+      });
     }
+
+    setDataLoading(false);
   }, [selectedYear, selectedGp]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (!racesLoading) fetchRaceData(); }, [selectedYear, selectedGp, racesLoading]);
 
   function toggleDriver(driver) {
-    setSelectedDrivers((prev) => prev.includes(driver) ? prev.filter((d) => d !== driver) : [...prev, driver]);
+    setSelectedDrivers((prev) =>
+      prev.includes(driver) ? prev.filter((d) => d !== driver) : [...prev, driver]
+    );
   }
 
   const tableLaps = laps.filter((l) => l.Driver === tableDriver);
@@ -622,7 +663,10 @@ export default function App() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <div style={{ color: "#555", fontSize: 11, letterSpacing: 1 }}>SELECT RACE</div>
-          <select value={selectedYear} onChange={(e) => { const yr = e.target.value; setSelectedYear(yr); const first = availableRaces[yr]?.[0]; if (first) setSelectedGp(first); }} style={SELECT_STYLE}>
+          <select value={selectedYear} onChange={(e) => {
+            const yr = e.target.value; setSelectedYear(yr);
+            const first = availableRaces[yr]?.[0]; if (first) setSelectedGp(first);
+          }} style={SELECT_STYLE}>
             {Object.keys(availableRaces).sort().map((yr) => <option key={yr} value={yr}>{yr}</option>)}
           </select>
           <select value={selectedGp} onChange={(e) => setSelectedGp(e.target.value)} style={{ ...SELECT_STYLE, minWidth: 240 }}>
@@ -630,95 +674,105 @@ export default function App() {
           </select>
           {dataLoading && (
             <div style={{ color: "#e10600", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#e10600", display: "inline-block" }} />
-              Loading race data — first load may take 60s
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#e10600", display: "inline-block", animation: "pulse 1s infinite" }} />
+              Loading race data...
             </div>
           )}
         </div>
       </div>
-
-      {error && (
-        <div style={{ maxWidth: 1200, margin: "24px auto", padding: "0 32px" }}>
-          <div style={{ background: "#ff000022", border: "1px solid #ff4444", borderRadius: 8, padding: "12px 16px", color: "#ff6666", fontSize: 13 }}>Error: {error}</div>
-        </div>
-      )}
 
       <div style={{ opacity: dataLoading ? 0.4 : 1, transition: "opacity 0.3s", pointerEvents: dataLoading ? "none" : "auto" }}>
         <div style={styles.section}>
 
           {/* Race overview */}
           <div style={styles.sectionTitle}>Race Overview</div>
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 40, alignItems: "flex-end" }}>
-            <FastestLapCard fastestLap={raceOverview?.fastestLap} />
-            <Podium podium={raceOverview?.podium} />
-          </div>
+          {sectionErrors.overview ? (
+            <SectionError message={sectionErrors.overview} />
+          ) : (
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 40, alignItems: "flex-end" }}>
+              <FastestLapCard fastestLap={raceOverview?.fastestLap} />
+              <Podium podium={raceOverview?.podium} />
+            </div>
+          )}
 
-          {/* Driver selector */}
+          {/* Lap time comparison */}
           <div style={styles.sectionTitle}>Lap Time Comparison</div>
           <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>Select drivers to compare — same selection applies to all charts below</p>
-          <div style={styles.driverGrid}>
-            {allDrivers.map((driver, i) => {
-              const color = DRIVER_COLORS[i % DRIVER_COLORS.length];
-              const active = selectedDrivers.includes(driver);
-              const dnf = driverStatus[driver] && !driverStatus[driver].finished;
-              return (
-                <button key={driver} style={styles.driverBtn(active, color)} onClick={() => toggleDriver(driver)}>
-                  {driver}{dnf && <DnfBadge />}
-                </button>
-              );
-            })}
-          </div>
+          {sectionErrors.laps ? (
+            <SectionError message={sectionErrors.laps} />
+          ) : (
+            <>
+              <div style={styles.driverGrid}>
+                {allDrivers.map((driver, i) => {
+                  const color = DRIVER_COLORS[i % DRIVER_COLORS.length];
+                  const active = selectedDrivers.includes(driver);
+                  const dnf = driverStatus[driver] && !driverStatus[driver].finished;
+                  return (
+                    <button key={driver} style={styles.driverBtn(active, color)} onClick={() => toggleDriver(driver)}>
+                      {driver}{dnf && <DnfBadge />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={styles.chartBox}>
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                    <XAxis dataKey="LapNumber" stroke="#555" tick={{ fill: "#888", fontSize: 12 }} label={{ value: "Lap Number", position: "insideBottom", offset: -10, fill: "#666", fontSize: 12 }} />
+                    <YAxis stroke="#555" tick={{ fill: "#888", fontSize: 12 }} domain={["auto", "auto"]} tickFormatter={formatLapTime} label={{ value: "Lap Time", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
+                    {selectedDrivers.map((driver) => (
+                      <Line key={driver} type="monotone" dataKey={driver} stroke={DRIVER_COLORS[allDrivers.indexOf(driver) % DRIVER_COLORS.length]} dot={false} strokeWidth={2} connectNulls={false} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
 
-          {/* Lap time chart */}
-          <div style={styles.chartBox}>
-            <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                <XAxis dataKey="LapNumber" stroke="#555" tick={{ fill: "#888", fontSize: 12 }} label={{ value: "Lap Number", position: "insideBottom", offset: -10, fill: "#666", fontSize: 12 }} />
-                <YAxis stroke="#555" tick={{ fill: "#888", fontSize: 12 }} domain={["auto", "auto"]} tickFormatter={formatLapTime} label={{ value: "Lap Time", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
-                {selectedDrivers.map((driver) => (
-                  <Line key={driver} type="monotone" dataKey={driver} stroke={DRIVER_COLORS[allDrivers.indexOf(driver) % DRIVER_COLORS.length]} dot={false} strokeWidth={2} connectNulls={false} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Race position chart */}
+          {/* Race position */}
           <div style={styles.sectionTitle}>Race Position</div>
           <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>Position each lap — dips show pit stops, climbs show overtakes</p>
-          <div style={styles.chartBox}>
-            <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={positionChartData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#222" />
-                <XAxis dataKey="LapNumber" stroke="#555" tick={{ fill: "#888", fontSize: 12 }} label={{ value: "Lap Number", position: "insideBottom", offset: -10, fill: "#666", fontSize: 12 }} />
-                <YAxis stroke="#555" tick={{ fill: "#888", fontSize: 12 }} reversed={true} domain={[1, 20]} ticks={[1, 5, 10, 15, 20]} label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }} />
-                <Tooltip content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  return (
-                    <div style={{ background: "#1a1a1a", border: "1px solid #444", borderRadius: 6, padding: "10px 14px", fontSize: 13 }}>
-                      <div style={{ color: "#aaa", marginBottom: 6 }}>Lap {label}</div>
-                      {[...payload].sort((a, b) => a.value - b.value).map((p) => (
-                        <div key={p.name} style={{ color: p.color, marginBottom: 2 }}>P{p.value} — {p.name}</div>
-                      ))}
-                    </div>
-                  );
-                }} />
-                <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
-                {selectedDrivers.map((driver) => (
-                  <Line key={driver} type="monotone" dataKey={driver} stroke={DRIVER_COLORS[allDrivers.indexOf(driver) % DRIVER_COLORS.length]} dot={false} strokeWidth={2} connectNulls={false} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {sectionErrors.positions ? (
+            <SectionError message={sectionErrors.positions} />
+          ) : (
+            <div style={styles.chartBox}>
+              <ResponsiveContainer width="100%" height={400}>
+                <LineChart data={positionChartData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+                  <XAxis dataKey="LapNumber" stroke="#555" tick={{ fill: "#888", fontSize: 12 }} label={{ value: "Lap Number", position: "insideBottom", offset: -10, fill: "#666", fontSize: 12 }} />
+                  <YAxis stroke="#555" tick={{ fill: "#888", fontSize: 12 }} reversed={true} domain={[1, 20]} ticks={[1, 5, 10, 15, 20]} label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#666", fontSize: 12 }} />
+                  <Tooltip content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div style={{ background: "#1a1a1a", border: "1px solid #444", borderRadius: 6, padding: "10px 14px", fontSize: 13 }}>
+                        <div style={{ color: "#aaa", marginBottom: 6 }}>Lap {label}</div>
+                        {[...payload].sort((a, b) => a.value - b.value).map((p) => (
+                          <div key={p.name} style={{ color: p.color, marginBottom: 2 }}>P{p.value} — {p.name}</div>
+                        ))}
+                      </div>
+                    );
+                  }} />
+                  <Legend wrapperStyle={{ color: "#888", fontSize: 12, paddingTop: 12 }} />
+                  {selectedDrivers.map((driver) => (
+                    <Line key={driver} type="monotone" dataKey={driver} stroke={DRIVER_COLORS[allDrivers.indexOf(driver) % DRIVER_COLORS.length]} dot={false} strokeWidth={2} connectNulls={false} />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Tire strategy */}
           <div style={styles.sectionTitle}>Tire Strategy</div>
           <p style={{ color: "#666", fontSize: 13, marginBottom: 16, marginTop: -8 }}>Each bar shows a tire stint — hover for compound and lap range</p>
-          <div style={styles.chartBox}>
-            <StintChart stints={stints} allDrivers={allDrivers} driverStatus={driverStatus} />
-          </div>
+          {sectionErrors.stints ? (
+            <SectionError message={sectionErrors.stints} />
+          ) : (
+            <div style={styles.chartBox}>
+              <StintChart stints={stints} allDrivers={allDrivers} driverStatus={driverStatus} />
+            </div>
+          )}
 
           {/* AI Lap Time Predictor */}
           <div style={styles.sectionTitle}>AI Lap Time Predictor</div>
@@ -745,80 +799,84 @@ export default function App() {
 
           {/* Driver lap detail */}
           <div style={styles.sectionTitle}>Driver Lap Detail</div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-            {fastestLap && (
-              <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "14px 20px", minWidth: 140 }}>
-                <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Fastest Lap · {tableDriver}</div>
-                <div style={{ color: "#fff", fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{formatLapTime(fastestLap)}</div>
-              </div>
-            )}
-            {avgLap && (
-              <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "14px 20px", minWidth: 140 }}>
-                <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Avg Lap · {tableDriver}</div>
-                <div style={{ color: "#fff", fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{formatLapTime(avgLap)}</div>
-              </div>
-            )}
-            {driverStatus[tableDriver] && !driverStatus[tableDriver].finished && (
-              <div style={{ background: "#ff000022", border: "1px solid #ff4444", borderRadius: 8, padding: "14px 20px", color: "#ff6666", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center" }}>
-                DNF — {driverStatus[tableDriver].status}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-            {allDrivers.map((driver, i) => {
-              const color = DRIVER_COLORS[i % DRIVER_COLORS.length];
-              const dnf = driverStatus[driver] && !driverStatus[driver].finished;
-              return (
-                <button key={driver} style={styles.driverBtn(tableDriver === driver, color)} onClick={() => setTableDriver(driver)}>
-                  {driver}{dnf && <DnfBadge />}
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ background: "#141414", border: "1px solid #222", borderRadius: 10, overflow: "hidden" }}>
-            {tableLaps.length === 0 ? (
-              <div style={{ padding: "32px", textAlign: "center", color: "#555" }}>
-                No lap data for {tableDriver}
+          {sectionErrors.laps ? (
+            <SectionError message={sectionErrors.laps} />
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+                {fastestLap && (
+                  <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "14px 20px", minWidth: 140 }}>
+                    <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Fastest Lap · {tableDriver}</div>
+                    <div style={{ color: "#fff", fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{formatLapTime(fastestLap)}</div>
+                  </div>
+                )}
+                {avgLap && (
+                  <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "14px 20px", minWidth: 140 }}>
+                    <div style={{ color: "#888", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Avg Lap · {tableDriver}</div>
+                    <div style={{ color: "#fff", fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: "monospace" }}>{formatLapTime(avgLap)}</div>
+                  </div>
+                )}
                 {driverStatus[tableDriver] && !driverStatus[tableDriver].finished && (
-                  <span style={{ color: "#ff6666", marginLeft: 8 }}>({driverStatus[tableDriver].status})</span>
+                  <div style={{ background: "#ff000022", border: "1px solid #ff4444", borderRadius: 8, padding: "14px 20px", color: "#ff6666", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center" }}>
+                    DNF — {driverStatus[tableDriver].status}
+                  </div>
                 )}
               </div>
-            ) : (
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Lap</th>
-                    <th style={styles.th}>Lap Time</th>
-                    <th style={styles.th}>Compound</th>
-                    <th style={styles.th}>Tyre Life</th>
-                    <th style={styles.th}>Δ Fastest</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableLaps.map((lap, i) => {
-                    const delta = fastestLap ? (lap.LapTimeSeconds - fastestLap).toFixed(3) : null;
-                    const isFastest = lap.LapTimeSeconds === fastestLap;
-                    return (
-                      <tr key={i} style={{ background: isFastest ? "#e1060012" : "transparent" }}>
-                        <td style={styles.td}>{lap.LapNumber}</td>
-                        <td style={{ ...styles.td, color: isFastest ? "#e10600" : "#ccc", fontWeight: isFastest ? 700 : 400, fontFamily: "monospace" }}>
-                          {formatLapTime(lap.LapTimeSeconds)}
-                          {isFastest && <span style={{ marginLeft: 8, fontSize: 10, color: "#e10600" }}>▼ FASTEST</span>}
-                        </td>
-                        <td style={styles.td}><CompoundBadge compound={lap.Compound} /></td>
-                        <td style={{ ...styles.td, color: "#888" }}>{lap.TyreLife} laps</td>
-                        <td style={{ ...styles.td, color: isFastest ? "#e10600" : "#555", fontFamily: "monospace", fontSize: 12 }}>
-                          {isFastest ? "—" : `+${delta}s`}
-                        </td>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+                {allDrivers.map((driver, i) => {
+                  const color = DRIVER_COLORS[i % DRIVER_COLORS.length];
+                  const dnf = driverStatus[driver] && !driverStatus[driver].finished;
+                  return (
+                    <button key={driver} style={styles.driverBtn(tableDriver === driver, color)} onClick={() => setTableDriver(driver)}>
+                      {driver}{dnf && <DnfBadge />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ background: "#141414", border: "1px solid #222", borderRadius: 10, overflow: "hidden", marginBottom: 40 }}>
+                {tableLaps.length === 0 ? (
+                  <div style={{ padding: "32px", textAlign: "center", color: "#555" }}>
+                    No lap data for {tableDriver}
+                    {driverStatus[tableDriver] && !driverStatus[tableDriver].finished && (
+                      <span style={{ color: "#ff6666", marginLeft: 8 }}>({driverStatus[tableDriver].status})</span>
+                    )}
+                  </div>
+                ) : (
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={styles.th}>Lap</th>
+                        <th style={styles.th}>Lap Time</th>
+                        <th style={styles.th}>Compound</th>
+                        <th style={styles.th}>Tyre Life</th>
+                        <th style={styles.th}>Δ Fastest</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+                    </thead>
+                    <tbody>
+                      {tableLaps.map((lap, i) => {
+                        const delta = fastestLap ? (lap.LapTimeSeconds - fastestLap).toFixed(3) : null;
+                        const isFastest = lap.LapTimeSeconds === fastestLap;
+                        return (
+                          <tr key={i} style={{ background: isFastest ? "#e1060012" : "transparent" }}>
+                            <td style={styles.td}>{lap.LapNumber}</td>
+                            <td style={{ ...styles.td, color: isFastest ? "#e10600" : "#ccc", fontWeight: isFastest ? 700 : 400, fontFamily: "monospace" }}>
+                              {formatLapTime(lap.LapTimeSeconds)}
+                              {isFastest && <span style={{ marginLeft: 8, fontSize: 10, color: "#e10600" }}>▼ FASTEST</span>}
+                            </td>
+                            <td style={styles.td}><CompoundBadge compound={lap.Compound} /></td>
+                            <td style={{ ...styles.td, color: "#888" }}>{lap.TyreLife} laps</td>
+                            <td style={{ ...styles.td, color: isFastest ? "#e10600" : "#555", fontFamily: "monospace", fontSize: 12 }}>
+                              {isFastest ? "—" : `+${delta}s`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
+          )}
 
         </div>
       </div>

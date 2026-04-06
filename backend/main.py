@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 import threading
 import fastf1
 import pandas as pd
-import math
 from datetime import datetime
 import pickle
 import numpy as np
@@ -37,6 +36,64 @@ def load_session(year: int, gp: str):
     return session_cache[key]
 
 
+# ─── Helper: build all cache dicts from a session ────────────────────────────
+def build_cache_from_session(session, key: str):
+    # laps
+    laps = session.laps[["Driver", "LapNumber", "LapTime", "Compound", "TyreLife"]].copy()
+    laps = laps.dropna(subset=["LapTime"])
+    laps["LapTimeSeconds"] = laps["LapTime"].dt.total_seconds()
+    laps = laps[laps["LapTimeSeconds"] < 200]
+    laps_cache[key] = laps.to_dict(orient="records")
+
+    # driver status
+    results = session.results[["Abbreviation", "Status", "ClassifiedPosition"]].copy()
+    status_map = {}
+    for _, row in results.iterrows():
+        abbr = row["Abbreviation"]
+        finished = str(row["ClassifiedPosition"]) != "R"
+        status_map[abbr] = {"status": str(row["Status"]), "finished": finished}
+    status_cache[key] = status_map
+
+    # stints
+    stint_laps = session.laps[["Driver", "LapNumber", "Compound", "Stint"]].copy()
+    stint_laps = stint_laps.dropna(subset=["Compound", "Stint"])
+    stints = (
+        stint_laps.groupby(["Driver", "Stint", "Compound"])
+        .agg(StartLap=("LapNumber", "min"), EndLap=("LapNumber", "max"))
+        .reset_index()
+    )
+    stints_cache[key] = stints.to_dict(orient="records")
+
+    # positions
+    pos_laps = session.laps[["Driver", "LapNumber", "Position"]].copy()
+    pos_laps = pos_laps.dropna(subset=["Position"])
+    pos_laps["Position"] = pos_laps["Position"].astype(int)
+    positions_cache[key] = pos_laps.to_dict(orient="records")
+
+    # overview
+    ov_laps = session.laps[["Driver", "LapNumber", "LapTime"]].copy()
+    ov_laps = ov_laps.dropna(subset=["LapTime"])
+    ov_laps["LapTimeSeconds"] = ov_laps["LapTime"].dt.total_seconds()
+    ov_laps = ov_laps[ov_laps["LapTimeSeconds"] < 200]
+    fastest_row = ov_laps.loc[ov_laps["LapTimeSeconds"].idxmin()]
+    ov_results = session.results[["Abbreviation", "ClassifiedPosition"]].copy()
+    ov_results = ov_results[ov_results["ClassifiedPosition"].apply(lambda x: str(x).isdigit())]
+    ov_results["ClassifiedPosition"] = ov_results["ClassifiedPosition"].astype(int)
+    podium = (
+        ov_results.sort_values("ClassifiedPosition")
+        .head(3)[["Abbreviation", "ClassifiedPosition"]]
+        .to_dict(orient="records")
+    )
+    overview_cache[key] = {
+        "fastestLap": {
+            "driver": fastest_row["Driver"],
+            "lapNumber": int(fastest_row["LapNumber"]),
+            "timeSeconds": fastest_row["LapTimeSeconds"],
+        },
+        "podium": podium,
+    }
+
+
 # ─── Prewarm all races on startup ────────────────────────────────────────────
 def prewarm_all_races():
     print("🔥 Starting background pre-warm of all races...")
@@ -54,69 +111,15 @@ def prewarm_all_races():
                 gp = event["EventName"]
                 key = cache_key(year, gp)
 
-                # Skip if already fully cached
                 if key in laps_cache:
                     continue
 
                 try:
                     print(f"  Warming {year} {gp}...")
                     session = load_session(year, gp)
+                    build_cache_from_session(session, key)
 
-                    # ── laps ──
-                    laps = session.laps[["Driver", "LapNumber", "LapTime", "Compound", "TyreLife"]].copy()
-                    laps = laps.dropna(subset=["LapTime"])
-                    laps["LapTimeSeconds"] = laps["LapTime"].dt.total_seconds()
-                    laps = laps[laps["LapTimeSeconds"] < 200]
-                    laps_cache[key] = laps.to_dict(orient="records")
-
-                    # ── driver status ──
-                    results = session.results[["Abbreviation", "Status", "ClassifiedPosition"]].copy()
-                    status_map = {}
-                    for _, row in results.iterrows():
-                        abbr = row["Abbreviation"]
-                        finished = str(row["ClassifiedPosition"]) != "R"
-                        status_map[abbr] = {"status": str(row["Status"]), "finished": finished}
-                    status_cache[key] = status_map
-
-                    # ── stints ──
-                    stint_laps = session.laps[["Driver", "LapNumber", "Compound", "Stint"]].copy()
-                    stint_laps = stint_laps.dropna(subset=["Compound", "Stint"])
-                    stints = (
-                        stint_laps.groupby(["Driver", "Stint", "Compound"])
-                        .agg(StartLap=("LapNumber", "min"), EndLap=("LapNumber", "max"))
-                        .reset_index()
-                    )
-                    stints_cache[key] = stints.to_dict(orient="records")
-
-                    # ── positions ──
-                    pos_laps = session.laps[["Driver", "LapNumber", "Position"]].copy()
-                    pos_laps = pos_laps.dropna(subset=["Position"])
-                    pos_laps["Position"] = pos_laps["Position"].astype(int)
-                    positions_cache[key] = pos_laps.to_dict(orient="records")
-
-                    # ── overview ──
-                    ov_laps = session.laps[["Driver", "LapNumber", "LapTime"]].copy()
-                    ov_laps = ov_laps.dropna(subset=["LapTime"])
-                    ov_laps["LapTimeSeconds"] = ov_laps["LapTime"].dt.total_seconds()
-                    ov_laps = ov_laps[ov_laps["LapTimeSeconds"] < 200]
-                    fastest_row = ov_laps.loc[ov_laps["LapTimeSeconds"].idxmin()]
-                    ov_results = session.results[["Abbreviation", "ClassifiedPosition"]].copy()
-                    ov_results = ov_results[ov_results["ClassifiedPosition"].apply(lambda x: str(x).isdigit())]
-                    ov_results["ClassifiedPosition"] = ov_results["ClassifiedPosition"].astype(int)
-                    podium = (
-                        ov_results.sort_values("ClassifiedPosition")
-                        .head(3)[["Abbreviation", "ClassifiedPosition"]]
-                        .to_dict(orient="records")
-                    )
-                    overview_cache[key] = {
-                        "fastestLap": {
-                            "driver": fastest_row["Driver"],
-                            "lapNumber": int(fastest_row["LapNumber"]),
-                            "timeSeconds": fastest_row["LapTimeSeconds"],
-                        },
-                        "podium": podium,
-                    }
-
+                    # Free session memory after extracting all data
                     if key in session_cache:
                         del session_cache[key]
 
@@ -133,7 +136,7 @@ def prewarm_all_races():
     print("✅ Pre-warm complete!")
 
 
-# ─── Lifespan: start prewarm thread when server boots ────────────────────────
+# ─── Lifespan ─────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     thread = threading.Thread(target=prewarm_all_races, daemon=True)
@@ -158,7 +161,6 @@ app.add_middleware(
 def get_available_races():
     races = {}
     now = datetime.now()
-
     for year in range(2022, 2027):
         try:
             schedule = fastf1.get_event_schedule(year, include_testing=False)
@@ -172,118 +174,94 @@ def get_available_races():
         except Exception as e:
             print(f"Schedule load failed for {year}: {e}")
             continue
-
     return races
 
 
-# ─── Race laps ────────────────────────────────────────────────────────────────
+# ─── Combined race data endpoint (replaces 5 separate calls) ─────────────────
+@app.get("/race-data")
+def get_race_data(year: int = 2024, gp: str = "Monaco"):
+    key = cache_key(year, gp)
+
+    # If all caches are warm, return everything in one shot
+    if (key in laps_cache and key in status_cache and
+            key in stints_cache and key in positions_cache and
+            key in overview_cache):
+        return {
+            "laps": laps_cache[key],
+            "driverStatus": status_cache[key],
+            "stints": stints_cache[key],
+            "positions": positions_cache[key],
+            "overview": overview_cache[key],
+            "errors": {},
+        }
+
+    # Otherwise load session once and build everything
+    errors = {}
+    session = load_session(year, gp)
+    build_cache_from_session(session, key)
+
+    return {
+        "laps": laps_cache.get(key, []),
+        "driverStatus": status_cache.get(key, {}),
+        "stints": stints_cache.get(key, []),
+        "positions": positions_cache.get(key, []),
+        "overview": overview_cache.get(key, {}),
+        "errors": errors,
+    }
+
+
+# ─── Individual endpoints (kept for backwards compatibility) ──────────────────
 @app.get("/race-laps")
 def get_race_laps(year: int = 2024, gp: str = "Monaco"):
     key = cache_key(year, gp)
     if key in laps_cache:
         return laps_cache[key]
-
     session = load_session(year, gp)
-    laps = session.laps[["Driver", "LapNumber", "LapTime", "Compound", "TyreLife"]].copy()
-    laps = laps.dropna(subset=["LapTime"])
-    laps["LapTimeSeconds"] = laps["LapTime"].dt.total_seconds()
-    laps = laps[laps["LapTimeSeconds"] < 200]
-    laps_cache[key] = laps.to_dict(orient="records")
+    build_cache_from_session(session, key)
     return laps_cache[key]
 
 
-# ─── Driver status ────────────────────────────────────────────────────────────
 @app.get("/driver-status")
 def get_driver_status(year: int = 2024, gp: str = "Monaco"):
     key = cache_key(year, gp)
     if key in status_cache:
         return status_cache[key]
-
     session = load_session(year, gp)
-    results = session.results[["Abbreviation", "Status", "ClassifiedPosition"]].copy()
-
-    status_map = {}
-    for _, row in results.iterrows():
-        abbr = row["Abbreviation"]
-        status = str(row["Status"])
-        classified = row["ClassifiedPosition"]
-        finished = str(classified) != "R"
-        status_map[abbr] = {"status": status, "finished": finished}
-
-    status_cache[key] = status_map
+    build_cache_from_session(session, key)
     return status_cache[key]
 
 
-# ─── Stint data ───────────────────────────────────────────────────────────────
 @app.get("/stint-data")
 def get_stint_data(year: int = 2024, gp: str = "Monaco"):
     key = cache_key(year, gp)
     if key in stints_cache:
         return stints_cache[key]
-
     session = load_session(year, gp)
-    laps = session.laps[["Driver", "LapNumber", "Compound", "Stint"]].copy()
-    laps = laps.dropna(subset=["Compound", "Stint"])
-
-    stints = (
-        laps.groupby(["Driver", "Stint", "Compound"])
-        .agg(StartLap=("LapNumber", "min"), EndLap=("LapNumber", "max"))
-        .reset_index()
-    )
-
-    stints_cache[key] = stints.to_dict(orient="records")
+    build_cache_from_session(session, key)
     return stints_cache[key]
 
 
-# ─── Position data ────────────────────────────────────────────────────────────
 @app.get("/position-data")
 def get_position_data(year: int = 2024, gp: str = "Monaco"):
     key = cache_key(year, gp)
     if key in positions_cache:
         return positions_cache[key]
-
     session = load_session(year, gp)
-    laps = session.laps[["Driver", "LapNumber", "Position"]].copy()
-    laps = laps.dropna(subset=["Position"])
-    laps["Position"] = laps["Position"].astype(int)
-
-    positions_cache[key] = laps.to_dict(orient="records")
+    build_cache_from_session(session, key)
     return positions_cache[key]
 
 
-# ─── Race overview ────────────────────────────────────────────────────────────
 @app.get("/race-overview")
 def get_race_overview(year: int = 2024, gp: str = "Monaco"):
     key = cache_key(year, gp)
     if key in overview_cache:
         return overview_cache[key]
-
     session = load_session(year, gp)
-
-    laps = session.laps[["Driver", "LapNumber", "LapTime"]].copy()
-    laps = laps.dropna(subset=["LapTime"])
-    laps["LapTimeSeconds"] = laps["LapTime"].dt.total_seconds()
-    laps = laps[laps["LapTimeSeconds"] < 200]
-    fastest_row = laps.loc[laps["LapTimeSeconds"].idxmin()]
-
-    results = session.results[["Abbreviation", "ClassifiedPosition"]].copy()
-    results = results[results["ClassifiedPosition"].apply(lambda x: str(x).isdigit())]
-    results["ClassifiedPosition"] = results["ClassifiedPosition"].astype(int)
-    results = results.sort_values("ClassifiedPosition")
-    podium = results.head(3)[["Abbreviation", "ClassifiedPosition"]].to_dict(orient="records")
-
-    overview_cache[key] = {
-        "fastestLap": {
-            "driver": fastest_row["Driver"],
-            "lapNumber": int(fastest_row["LapNumber"]),
-            "timeSeconds": fastest_row["LapTimeSeconds"],
-        },
-        "podium": podium,
-    }
+    build_cache_from_session(session, key)
     return overview_cache[key]
 
 
-# ─── Prewarm status endpoint (useful for debugging) ──────────────────────────
+# ─── Prewarm status ───────────────────────────────────────────────────────────
 @app.get("/prewarm-status")
 def prewarm_status():
     return {
@@ -400,7 +378,6 @@ def simulate_strategy(
 
     total_laps = int(driver_laps["LapNumber"].max())
     baseline = float(driver_laps["LapTimeSeconds"].quantile(0.05))
-
     compound_map = md["compound_map"]
 
     def predict_lap(compound, tyre_life, lap_number):
